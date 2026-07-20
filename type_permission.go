@@ -50,7 +50,9 @@ func (o *permission) IsActive() bool {
 }
 
 func (o *permission) IsSoftDeleted() bool {
-	return o.SoftDeletedAtCarbon().Compare("<", carbon.Now(carbon.UTC))
+	sd := o.SoftDeletedAtCarbon()
+	now := carbon.Now(carbon.UTC)
+	return sd.Compare("<", now)
 }
 
 func (o *permission) IsInactive() bool {
@@ -64,7 +66,7 @@ func (o *permission) CreatedAt() string {
 }
 
 func (o *permission) CreatedAtCarbon() carbon.Carbon {
-	return carbon.Parse(o.CreatedAt(), carbon.UTC)
+	return *carbon.Parse(o.CreatedAt(), carbon.UTC)
 }
 
 func (o *permission) SetCreatedAt(createdAt string) PermissionInterface {
@@ -162,7 +164,7 @@ func (o *permission) SoftDeletedAt() string {
 }
 
 func (o *permission) SoftDeletedAtCarbon() carbon.Carbon {
-	return carbon.NewCarbon().Parse(o.SoftDeletedAt(), carbon.UTC)
+	return *carbon.Parse(o.SoftDeletedAt(), carbon.UTC)
 }
 
 func (o *permission) SetSoftDeletedAt(deletedAt string) PermissionInterface {
@@ -193,7 +195,7 @@ func (o *permission) UpdatedAt() string {
 }
 
 func (o *permission) UpdatedAtCarbon() carbon.Carbon {
-	return carbon.NewCarbon().Parse(o.Get(COLUMN_UPDATED_AT), carbon.UTC)
+	return *carbon.Parse(o.Get(COLUMN_UPDATED_AT), carbon.UTC)
 }
 
 func (o *permission) SetUpdatedAt(updatedAt string) PermissionInterface {
