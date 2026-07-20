@@ -45,7 +45,9 @@ func NewEntityPermissionFromExistingData(data map[string]string) EntityPermissio
 // == METHODS =================================================================
 
 func (o *entityPermission) IsSoftDeleted() bool {
-	return o.SoftDeletedAtCarbon().Compare("<", carbon.Now(carbon.UTC))
+	sd := o.SoftDeletedAtCarbon()
+	now := carbon.Now(carbon.UTC)
+	return sd.Compare("<", now)
 }
 
 // == SETTERS AND GETTERS =====================================================
@@ -55,7 +57,7 @@ func (o *entityPermission) CreatedAt() string {
 }
 
 func (o *entityPermission) CreatedAtCarbon() carbon.Carbon {
-	return carbon.Parse(o.CreatedAt(), carbon.UTC)
+	return *carbon.Parse(o.CreatedAt(), carbon.UTC)
 }
 
 func (o *entityPermission) SetCreatedAt(createdAt string) EntityPermissionInterface {
@@ -162,7 +164,7 @@ func (o *entityPermission) SoftDeletedAt() string {
 }
 
 func (o *entityPermission) SoftDeletedAtCarbon() carbon.Carbon {
-	return carbon.NewCarbon().Parse(o.SoftDeletedAt(), carbon.UTC)
+	return *carbon.Parse(o.SoftDeletedAt(), carbon.UTC)
 }
 
 func (o *entityPermission) SetSoftDeletedAt(deletedAt string) EntityPermissionInterface {
@@ -184,7 +186,7 @@ func (o *entityPermission) UpdatedAt() string {
 }
 
 func (o *entityPermission) UpdatedAtCarbon() carbon.Carbon {
-	return carbon.NewCarbon().Parse(o.Get(COLUMN_UPDATED_AT), carbon.UTC)
+	return *carbon.Parse(o.Get(COLUMN_UPDATED_AT), carbon.UTC)
 }
 
 func (o *entityPermission) SetUpdatedAt(updatedAt string) EntityPermissionInterface {
