@@ -13,7 +13,7 @@ require (
 	github.com/gouniverse/utils v1.45.4
 	github.com/samber/lo v1.53.0
 	github.com/spf13/cast v1.10.0
-	modernc.org/sqlite v1.36.0
+	modernc.org/sqlite v1.54.0
 )
 
 require (
@@ -27,21 +27,21 @@ require (
 	github.com/gouniverse/envenc v0.10.0 // indirect
 	github.com/gouniverse/hb v1.87.0 // indirect
 	github.com/gouniverse/webserver v0.1.0 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
+	github.com/joho/godotenv v1.6.0-pre.4 // indirect
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
-	github.com/mattn/go-isatty v0.0.23 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mingrammer/cfmt v1.1.0 // indirect
-	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/crypto v0.54.0 // indirect
-	golang.org/x/exp v0.0.0-20250228200357-dead58393ab7 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
-	modernc.org/libc v1.61.13 // indirect
+	golang.org/x/tools v0.48.0 // indirect
+	modernc.org/libc v1.74.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.8.2 // indirect
+	modernc.org/memory v1.11.0 // indirect
 )
