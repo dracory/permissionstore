@@ -2,53 +2,60 @@ package permissionstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
-	"strings"
+	"time"
 
-	"github.com/doug-martin/goqu/v9"
+	contractsorm "github.com/dracory/neat/contracts/database/orm"
 	"github.com/dromara/carbon/v2"
 	"github.com/gouniverse/base/database"
 	"github.com/gouniverse/sb"
+	"github.com/gouniverse/utils"
 	"github.com/samber/lo"
-	"github.com/spf13/cast"
 )
 
+type permissionRow struct {
+	ID            string     `db:"id"`
+	Status        string     `db:"status"`
+	Handle        string     `db:"handle"`
+	Title         string     `db:"title"`
+	Metas         string     `db:"metas"`
+	Memo          string     `db:"memo"`
+	CreatedAt     *time.Time `db:"created_at"`
+	UpdatedAt     *time.Time `db:"updated_at"`
+	SoftDeletedAt *time.Time `db:"soft_deleted_at"`
+}
+
 func (store *store) PermissionCount(ctx context.Context, options PermissionQueryInterface) (int64, error) {
+	if options == nil {
+		return -1, errors.New("at permission count > permission query is nil")
+	}
+
 	options.SetCountOnly(true)
 
-	q, _, err := store.permissionSelectQuery(options)
-
-	sqlStr, params, errSql := q.Prepared(true).
-		Limit(1).
-		Select(goqu.COUNT(goqu.Star()).As("count")).
-		ToSQL()
-
-	if errSql != nil {
-		return -1, nil
-	}
-
-	store.logSql("select", sqlStr, params...)
-
-	mapped, err := database.SelectToMapString(store.toQuerableContext(ctx), sqlStr, params...)
+	q, err := store.permissionSelectQuery(options)
 	if err != nil {
 		return -1, err
 	}
 
-	if len(mapped) < 1 {
-		return -1, nil
+	qCtx := store.toQuerableContext(ctx)
+	if qCtx.IsTx() {
+		sqlStr := q.ToRawSql().Get(nil)
+		mapped, err := database.SelectToMapString(qCtx, "SELECT COUNT(*) as count FROM ("+sqlStr+") as t")
+		if err != nil || len(mapped) < 1 {
+			return -1, err
+		}
+		countStr := mapped[0]["count"]
+		return strconv.ParseInt(countStr, 10, 64)
 	}
 
-	countStr := mapped[0]["count"]
-
-	i, err := strconv.ParseInt(countStr, 10, 64)
-
+	count, err := q.CountAsVar()
 	if err != nil {
 		return -1, err
-
 	}
 
-	return i, nil
+	return count, nil
 }
 
 func (store *store) PermissionCreate(ctx context.Context, permission PermissionInterface) error {
@@ -61,24 +68,29 @@ func (store *store) PermissionCreate(ctx context.Context, permission PermissionI
 
 	data := permission.Data()
 
-	sqlStr, params, errSql := goqu.Dialect(store.dbDriverName).
-		Insert(store.permissionTableName).
-		Prepared(true).
-		Rows(data).
-		ToSQL()
-
-	if errSql != nil {
-		return errSql
+	qCtx := store.toQuerableContext(ctx)
+	if qCtx.IsTx() {
+		mapString := make(map[string]string)
+		for k, v := range data {
+			mapString[k] = utils.ToString(v)
+		}
+		sqlStr := sb.NewBuilder(store.dbDriverName).Table(store.permissionTableName).Insert(mapString)
+		_, err := database.Execute(qCtx, sqlStr)
+		if err != nil {
+			return err
+		}
+		permission.MarkAsNotDirty()
+		return nil
 	}
 
-	store.logSql("insert", sqlStr, params...)
-
-	if store.db == nil {
-		return errors.New("permissionstore: database is nil")
+	insertData := make(map[string]interface{})
+	for k, v := range data {
+		insertData[k] = v
 	}
 
-	_, err := database.Execute(store.toQuerableContext(ctx), sqlStr, params...)
+	q := store.db.Query().Table(store.permissionTableName)
 
+	err := q.Create(insertData)
 	if err != nil {
 		return err
 	}
@@ -101,20 +113,16 @@ func (store *store) PermissionDeleteByID(ctx context.Context, id string) error {
 		return errors.New("permission id is empty")
 	}
 
-	sqlStr, params, errSql := goqu.Dialect(store.dbDriverName).
-		Delete(store.permissionTableName).
-		Prepared(true).
-		Where(goqu.C(COLUMN_ID).Eq(id)).
-		ToSQL()
-
-	if errSql != nil {
-		return errSql
+	qCtx := store.toQuerableContext(ctx)
+	if qCtx.IsTx() {
+		sqlStr := sb.NewBuilder(store.dbDriverName).Table(store.permissionTableName).Where(sb.Where{Column: COLUMN_ID, Operator: "=", Value: id}).Delete()
+		_, err := database.Execute(qCtx, sqlStr)
+		return err
 	}
 
-	store.logSql("delete", sqlStr, params...)
+	q := store.db.Query().Table(store.permissionTableName).Where(COLUMN_ID+" = ?", id)
 
-	_, err := database.Execute(store.toQuerableContext(ctx), sqlStr, params...)
-
+	_, err := q.Delete()
 	return err
 }
 
@@ -163,32 +171,58 @@ func (store *store) PermissionList(ctx context.Context, query PermissionQueryInt
 		return []PermissionInterface{}, errors.New("at permission list > permission query is nil")
 	}
 
-	q, columns, err := store.permissionSelectQuery(query)
-
-	sqlStr, sqlParams, errSql := q.Prepared(true).Select(columns...).ToSQL()
-
-	if errSql != nil {
-		return []PermissionInterface{}, nil
-	}
-
-	store.logSql("select", sqlStr, sqlParams...)
-
-	if store.db == nil {
-		return []PermissionInterface{}, errors.New("permissionstore: database is nil")
-	}
-
-	modelMaps, err := database.SelectToMapString(store.toQuerableContext(ctx), sqlStr, sqlParams...)
-
+	q, err := store.permissionSelectQuery(query)
 	if err != nil {
 		return []PermissionInterface{}, err
 	}
 
-	list := []PermissionInterface{}
+	qCtx := store.toQuerableContext(ctx)
+	if qCtx.IsTx() {
+		sqlStr := q.ToRawSql().Get(nil)
+		modelMaps, err := database.SelectToMapString(qCtx, sqlStr)
+		if err != nil {
+			return []PermissionInterface{}, err
+		}
+		list := []PermissionInterface{}
+		for _, modelMap := range modelMaps {
+			model := NewPermissionFromExistingData(modelMap)
+			list = append(list, model)
+		}
+		return list, nil
+	}
 
-	lo.ForEach(modelMaps, func(modelMap map[string]string, index int) {
-		model := NewPermissionFromExistingData(modelMap)
-		list = append(list, model)
-	})
+	var rows []permissionRow
+	err = q.Get(&rows)
+	if err != nil {
+		return []PermissionInterface{}, err
+	}
+
+	list := make([]PermissionInterface, 0, len(rows))
+	for _, r := range rows {
+		p := NewPermission()
+		p.SetID(r.ID)
+		p.SetStatus(r.Status)
+		p.SetHandle(r.Handle)
+		p.SetTitle(r.Title)
+		if r.Metas != "" {
+			var metas map[string]string
+			if json.Unmarshal([]byte(r.Metas), &metas) == nil {
+				_ = p.SetMetas(metas)
+			}
+		}
+		p.SetMemo(r.Memo)
+		if r.CreatedAt != nil {
+			p.SetCreatedAt(carbon.CreateFromStdTime(*r.CreatedAt).ToDateTimeString())
+		}
+		if r.UpdatedAt != nil {
+			p.SetUpdatedAt(carbon.CreateFromStdTime(*r.UpdatedAt).ToDateTimeString())
+		}
+		if r.SoftDeletedAt != nil {
+			p.SetSoftDeletedAt(carbon.CreateFromStdTime(*r.SoftDeletedAt).ToDateTimeString())
+		}
+		p.MarkAsNotDirty()
+		list = append(list, p)
+	}
 
 	return list, nil
 }
@@ -228,107 +262,137 @@ func (store *store) PermissionUpdate(ctx context.Context, permission PermissionI
 		return nil
 	}
 
-	sqlStr, params, errSql := goqu.Dialect(store.dbDriverName).
-		Update(store.permissionTableName).
-		Prepared(true).
-		Set(dataChanged).
-		Where(goqu.C(COLUMN_ID).Eq(permission.ID())).
-		ToSQL()
-
-	if errSql != nil {
-		return errSql
+	qCtx := store.toQuerableContext(ctx)
+	if qCtx.IsTx() {
+		mapString := make(map[string]string)
+		for k, v := range dataChanged {
+			mapString[k] = utils.ToString(v)
+		}
+		sqlStr := sb.NewBuilder(store.dbDriverName).Table(store.permissionTableName).Where(sb.Where{Column: COLUMN_ID, Operator: "=", Value: permission.ID()}).Update(mapString)
+		_, err := database.Execute(qCtx, sqlStr)
+		if err != nil {
+			return err
+		}
+		permission.MarkAsNotDirty()
+		return nil
 	}
 
-	store.logSql("update", sqlStr, params...)
-
-	if store.db == nil {
-		return errors.New("permissionstore: database is nil")
+	updateData := make(map[string]interface{})
+	for k, v := range dataChanged {
+		updateData[k] = v
 	}
 
-	_, err := database.Execute(store.toQuerableContext(ctx), sqlStr, params...)
+	q := store.db.Query().Table(store.permissionTableName).Where(COLUMN_ID+" = ?", permission.ID())
+
+	_, err := q.Update(updateData)
+	if err != nil {
+		return err
+	}
 
 	permission.MarkAsNotDirty()
 
-	return err
+	return nil
 }
 
-func (store *store) permissionSelectQuery(options PermissionQueryInterface) (selectDataset *goqu.SelectDataset, columns []any, err error) {
+func (store *store) permissionSelectQuery(options PermissionQueryInterface) (contractsorm.Query, error) {
 	if options == nil {
-		return nil, nil, errors.New("permission options is nil")
+		return nil, errors.New("permission options is nil")
 	}
 
 	if err := options.Validate(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	q := goqu.Dialect(store.dbDriverName).From(store.permissionTableName)
+	q := store.db.Query().Table(store.permissionTableName)
+
+	if len(options.Columns()) > 0 {
+		cols := make([]interface{}, len(options.Columns()))
+		for i, c := range options.Columns() {
+			cols[i] = c
+		}
+		q = q.Select(cols[0], cols[1:]...)
+	}
 
 	if options.HasID() {
-		q = q.Where(goqu.C(COLUMN_ID).Eq(options.ID()))
+		q = q.Where(COLUMN_ID+" = ?", options.ID())
 	}
 
 	if options.HasIDIn() {
-		q = q.Where(goqu.C(COLUMN_ID).In(options.IDIn()))
+		ids := options.IDIn()
+		if len(ids) > 0 {
+			inClause := COLUMN_ID + " IN ("
+			placeholders := make([]interface{}, 0, len(ids))
+			for i, id := range ids {
+				if i > 0 {
+					inClause += ", "
+				}
+				inClause += "?"
+				placeholders = append(placeholders, id)
+			}
+			inClause += ")"
+			q = q.Where(inClause, placeholders...)
+		} else {
+			q = q.Where("1 = 0")
+		}
 	}
 
 	if options.HasStatus() {
-		q = q.Where(goqu.C(COLUMN_STATUS).Eq(options.Status()))
+		q = q.Where(COLUMN_STATUS+" = ?", options.Status())
 	}
 
 	if options.HasStatusIn() {
-		q = q.Where(goqu.C(COLUMN_STATUS).In(options.StatusIn()))
+		statuses := options.StatusIn()
+		if len(statuses) > 0 {
+			inClause := COLUMN_STATUS + " IN ("
+			placeholders := make([]interface{}, 0, len(statuses))
+			for i, status := range statuses {
+				if i > 0 {
+					inClause += ", "
+				}
+				inClause += "?"
+				placeholders = append(placeholders, status)
+			}
+			inClause += ")"
+			q = q.Where(inClause, placeholders...)
+		} else {
+			q = q.Where("1 = 0")
+		}
 	}
 
 	if options.HasHandle() {
-		q = q.Where(goqu.C(COLUMN_HANDLE).Eq(options.Handle()))
+		q = q.Where(COLUMN_HANDLE+" = ?", options.Handle())
 	}
 
 	if options.HasTitleLike() {
-		q = q.Where(goqu.C(COLUMN_TITLE).ILike(`%` + options.TitleLike() + `%`))
+		q = q.Where(COLUMN_TITLE+" LIKE ?", "%"+options.TitleLike()+"%")
 	}
 
-	if options.HasCreatedAtGte() && options.HasCreatedAtLte() {
-		q = q.Where(
-			goqu.C(COLUMN_CREATED_AT).Gte(options.CreatedAtGte()),
-			goqu.C(COLUMN_CREATED_AT).Lte(options.CreatedAtLte()),
-		)
-	} else if options.HasCreatedAtGte() {
-		q = q.Where(goqu.C(COLUMN_CREATED_AT).Gte(options.CreatedAtGte()))
-	} else if options.HasCreatedAtLte() {
-		q = q.Where(goqu.C(COLUMN_CREATED_AT).Lte(options.CreatedAtLte()))
+	if options.HasCreatedAtGte() {
+		q = q.Where(COLUMN_CREATED_AT+" >= ?", options.CreatedAtGte())
+	}
+
+	if options.HasCreatedAtLte() {
+		q = q.Where(COLUMN_CREATED_AT+" <= ?", options.CreatedAtLte())
 	}
 
 	if !options.IsCountOnly() {
 		if options.HasLimit() {
-			q = q.Limit(cast.ToUint(options.Limit()))
+			q = q.Limit(int(options.Limit()))
 		}
 
 		if options.HasOffset() {
-			q = q.Offset(cast.ToUint(options.Offset()))
+			q = q.Offset(int(options.Offset()))
 		}
 	}
 
 	if options.HasOrderBy() {
-		sort := lo.Ternary(options.HasSortDirection(), options.SortDirection(), sb.DESC)
-		if strings.EqualFold(sort, sb.ASC) {
-			q = q.Order(goqu.I(options.OrderBy()).Asc())
-		} else {
-			q = q.Order(goqu.I(options.OrderBy()).Desc())
-		}
+		sortDir := lo.Ternary(options.HasSortDirection(), options.SortDirection(), sb.DESC)
+		q = q.OrderBy(options.OrderBy(), sortDir)
 	}
 
-	columns = []any{}
-
-	for _, column := range options.Columns() {
-		columns = append(columns, column)
+	if !options.SoftDeletedIncluded() {
+		q = q.Where("("+COLUMN_SOFT_DELETED_AT+" > ? OR "+COLUMN_SOFT_DELETED_AT+" IS NULL OR "+COLUMN_SOFT_DELETED_AT+" = '')", carbon.Now(carbon.UTC).ToDateTimeString())
 	}
 
-	if options.SoftDeletedIncluded() {
-		return q, columns, nil // soft deleted permissions requested specifically
-	}
-
-	softDeleted := goqu.C(COLUMN_SOFT_DELETED_AT).
-		Gt(carbon.Now(carbon.UTC).ToDateTimeString())
-
-	return q.Where(softDeleted), columns, nil
+	return q, nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/dracory/neat"
 	"github.com/gouniverse/sb"
 )
 
@@ -43,7 +44,7 @@ func NewStore(opts NewStoreOptions) (StoreInterface, error) {
 	}
 
 	if opts.DB == nil {
-		return nil, errors.New("shop store: DB is required")
+		return nil, errors.New("permission store: DB is required")
 	}
 
 	if opts.DbDriverName == "" {
@@ -54,11 +55,16 @@ func NewStore(opts NewStoreOptions) (StoreInterface, error) {
 		opts.SqlLogger = slog.Default()
 	}
 
+	neatDB, err := neat.NewFromSQLDB(opts.DB)
+	if err != nil {
+		return nil, err
+	}
+
 	store := &store{
 		permissionTableName:       opts.PermissionTableName,
 		entityPermissionTableName: opts.EntityPermissionTableName,
 		automigrateEnabled:        opts.AutomigrateEnabled,
-		db:                        opts.DB,
+		db:                        neatDB,
 		dbDriverName:              opts.DbDriverName,
 		debugEnabled:              opts.DebugEnabled,
 		sqlLogger:                 opts.SqlLogger,

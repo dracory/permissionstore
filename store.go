@@ -3,9 +3,9 @@ package permissionstore
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"log/slog"
 
+	"github.com/dracory/neat"
 	"github.com/gouniverse/base/database"
 )
 
@@ -18,8 +18,8 @@ type store struct {
 	// entityPermissionTableName is the name of the permission entity relation table
 	entityPermissionTableName string
 
-	// db is the underlying database connection
-	db *sql.DB
+	// db is the underlying neat database
+	db *neat.Database
 
 	// dbDriverName is the database driver name/type
 	dbDriverName string
@@ -40,42 +40,16 @@ var _ StoreInterface = (*store)(nil) // verify it extends the interface
 
 // PUBLIC METHODS ============================================================
 
-// AutoMigrate auto-migrates the database schema
-func (store *store) AutoMigrate() error {
-	if store.db == nil {
-		return errors.New("permissionstore: database is nil")
-	}
-
-	sqlStr := store.sqlPermissionTableCreate()
-
-	if sqlStr == "" {
-		return errors.New("permissionstore: permission table create sql is empty")
-	}
-
-	_, err := store.db.Exec(sqlStr)
-
-	if err != nil {
-		return err
-	}
-
-	sqlStr = store.sqlEntityPermissionTableCreate()
-
-	if sqlStr == "" {
-		return errors.New("permissionstore: entity permission table create sql is empty")
-	}
-
-	_, err = store.db.Exec(sqlStr)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // DB returns the underlying database connection
 func (store *store) DB() *sql.DB {
-	return store.db
+	if store.db == nil {
+		return nil
+	}
+	db, err := store.db.DB()
+	if err != nil {
+		return nil
+	}
+	return db
 }
 
 // EnableDebug - enables or disables the debug mode
@@ -100,5 +74,5 @@ func (store *store) toQuerableContext(ctx context.Context) database.QueryableCon
 		return ctx.(database.QueryableContext)
 	}
 
-	return database.Context(ctx, store.db)
+	return database.Context(ctx, store.DB())
 }
